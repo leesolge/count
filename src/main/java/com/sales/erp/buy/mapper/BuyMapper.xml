@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+     "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.sales.erp.buy.dao.BuyMapper">
+	<!-- 상품정보 불러오는 부분 -->
+	<select id="selectProductAll" resultType="com.sales.erp.product.vo.ProductVO">
+		SELECT * FROM PRODUCT
+	</select>
+	
+	<select id="getProductContent" parameterType="com.sales.erp.buy.vo.BuyVO" resultType="com.sales.erp.product.vo.ProductVO">
+		SELECT * FROM PRODUCT WHERE PROCODE = #{procode}
+	</select>
+
+	<!-- 구매요청 등록(새로운 구매번호 생성) -->
+	<insert id="buyWrite" parameterType="com.sales.erp.buy.vo.BuyVO">
+		INSERT INTO
+		BUY
+		(BUYNUM,
+		EMPNO, PROCODE, AMOUNT, BUYCOMMENT, REGDATE, APPDATE, BUYSTEP,
+		DELETED)
+		VALUES(BUY_SEQ.NEXTVAL, #{empno}, #{procode},
+		#{amount},
+		#{buycomment},
+		SYSDATE, SYSDATE, #{buystep}, 0)
+	</insert>
+
+	<insert id="buyWriteSameBuynum" parameterType="com.sales.erp.buy.vo.BuyVO">
+		INSERT INTO
+		BUY
+		(BUYNUM, EMPNO, PROCODE, AMOUNT, BUYCOMMENT, REGDATE, APPDATE, BUYSTEP,
+		DELETED)
+		VALUES((SELECT MAX(BUYNUM) FROM BUY), #{empno}, #{procode},
+		#{amount}, #{buycomment}, SYSDATE, SYSDATE, #{buystep}, 0)
+	</insert>
+
+	<!-- 구매후 물품 처리(관리자) -->
+	<update id="addProduct" parameterType="com.sales.erp.buy.vo.BuyVO">
+		UPDATE PRODUCT SET
+		PROAMOUNT=PROAMOUNT+#{amount} WHERE PROCODE=#{procode}
+	</update>
+
+	<select id="buyListWait" parameterType="com.sales.erp.buy.vo.BuyPagingVO"
+		resultType="com.sales.erp.buy.vo.BuyListVO">
+		SELECT BUYNUM, REGDATE, CNT, EMPNO, PROCODE, BUYSTEP, TEAM, APPDATE,
+		DELETED
+		FROM(
+		SELECT BUYNUM, REGDATE, CNT, EMPNO, PROCODE, BUYSTEP,
+		TEAM, APPDATE,
+		DELETED, ROWNUM R
+		FROM (
+		SELECT BUYNUM, MAX(REGDATE) AS
+		REGDATE, COUNT(*) AS CNT, MAX(EMPNO) AS
+		EMPNO,
+		MAX(PROCODE) AS PROCODE,
+		MAX(BUYSTEP) AS BUYSTEP, MAX(TEAM) AS TEAM, MAX(APPDATE) AS APPDATE,
+		MAX(DELETED)
+		AS DELETED FROM
+		(SELECT B.BUYNUM AS BUYNUM, B.EMPNO AS
+		EMPNO, B.PROCODE AS PROCODE, B.AMOUNT
+		AS AMOUNT, B.BUYCOMMENT AS
+		BUYCOMMENT,
+		B.REGDATE AS REGDATE, B.APPDATE AS APPDATE, B.BUYSTEP AS
+		BUYSTEP , B.DELETED AS
+		DELETED, S.TEAM AS TEAM FROM
+		BUY B, SMEMBER S
+		WHERE B.EMPNO = S.EMPNO)
+		WHERE EMPNO=#{empno} AND <![CDATA[BUYSTEP<2]]>
+		GROUP BY BUYNUM ORDER BY BUYNUM DESC)
+		)
+		<where>
+			<if test="start !=null and start != '' ">
+			<![CDATA[R >=#{start}]]>
+			</if>
+			<if test="end !=null and end != '' ">
+			<![CDATA[	AND R <= #{end}]]>
+			</if>
+		</where>
+	</select>
+
+	<select id="buyListWaitCount" parameterType="com.sales.erp.buy.vo.BuyPagingVO"
+		resultType="java.lang.Integer">
+		<![CDATA[
+SELECT count(*)
+	FROM (
+	SELECT BUYNUM, MAX(REGDATE) AS REGDATE, COUNT(*) AS CNT, MAX(EMPNO) AS EMPNO,
+	MAX(PROCODE) AS PROCODE,
+	MAX(BUYSTEP) AS BUYSTEP, MAX(TEAM) AS TEAM, MAX(APPDATE) AS APPDATE, MAX(DELETED) AS DELETED FROM
+	(SELECT B.BUYNUM AS BUYNUM, B.EMPNO AS EMPNO, B.PROCODE AS PROCODE, B.AMOUNT
+	AS AMOUNT, B.BUYCOMMENT AS BUYCOMMENT,
+	B.REGDATE AS REGDATE, B.APPDATE AS APPDATE, B.BUYSTEP AS BUYSTEP , B.DELETED AS
+	DELETED, S.TEAM AS TEAM FROM
+	BUY B, SMEMBER S WHERE B.EMPNO = S.EMPNO)
+	WHERE EMPNO=#{empno} AND BUYSTEP<2 GROUP BY BUYNUM ORDER BY BUYNUM DESC)
+	]]>
+	</select>
+
+	<!-- 사용자 정보 불러오기 -->
+	<select id="getMember" parameterType="com.sales.erp.member.vo.MemberVO"
+		resultType="com.sales.erp.member.vo.MemberVO">
+		SELECT * FROM SMEMBER WHERE EMPNO=#{empno}
+	</select>
+
+
+	<select id="getbuyAppWaitCount" parameterType="com.sales.erp.buy.vo.BuyPagingVO"
+		resultType="java.lang.Integer">
+		SELECT COUNT(*) FROM 
+			(SELECT BUYNUM, MAX(EMPNO) AS EMPNO, MAX(BUYSTEP) AS BUYSTEP, MAX(DELETED) AS DELETED, MAX(TEAM) AS TEAM  FROM
+				(SELECT B.BUYNUM AS BUYNUM, B.EMPNO AS EMPNO, B.BUYSTEP AS BUYSTEP, B.DELETED AS DELETED, S.TEAM AS TEAM FROM
+				BUY B, SMEMBER S WHERE B.EMPNO = S.EMPNO)
+				<where>
+					<![CDATA[	BUYSTEP<2 AND DELETED = 0 ]]>
+					<if test="team != null and team != ''">
+						AND TEAM = #{team}
+					</if>
+				</where>
+				GROUP BY BUYNUM ORDER BY BUYNUM DESC 
+				)
+	</select>
+
+	<!-- 팀장급 승인대기목록 불러오기 -->
+	<select id="buyListAppWait" parameterType="com.sales.erp.buy.vo.BuyPagingVO"
+		resultType="com.sales.erp.buy.vo.BuyListVO">
+		
+		SELECT BUYNUM, REGDATE, CNT, EMPNO, PROCODE, BUYSTEP, TEAM, APPDATE, DELETED FROM (
+			SELECT BUYNUM, REGDATE, CNT, EMPNO, PROCODE, BUYSTEP, TEAM, APPDATE, DELETED, ROWNUM R FROM (
+				SELECT BUYNUM, MAX(REGDATE) AS REGDATE, COUNT(*) AS CNT, MAX(EMPNO) AS EMPNO, MAX(PROCODE) AS PROCODE,
+				MAX(BUYSTEP) AS BUYSTEP, MAX(TEAM) AS TEAM, MAX(APPDATE) AS APPDATE, MAX(DELETED) AS DELETED FROM (
+					SELECT B.BUYNUM AS BUYNUM, B.EMPNO AS EMPNO, B.PROCODE AS PROCODE, B.AMOUNT AS AMOUNT, B.BUYCOMMENT AS BUYCOMMENT,
+					B.REGDATE AS REGDATE, B.APPDATE AS APPDATE, B.BUYSTEP AS BUYSTEP , B.DELETED AS
+					DELETED, S.TEAM AS TEAM FROM BUY B, SMEMBER S WHERE B.EMPNO = S.EMPNO)
+					<where>
+						<if test="team != null and team != ''">
+							TEAM = #{team}
+						</if>
+					</where>
+					 GROUP BY BUYNUM ORDER BY BUYNUM DESC
+				)
+				<where>
+					<![CDATA[BUYSTEP<2 AND DELETED=0]]>
+				</where>				
+			)
+			<where>
+			<if test="start !=null and start != '' ">
+			<![CDATA[R >=#{start}]]>
+			</if>
+			<if test="end !=null and end != '' ">
+			<![CDATA[	AND R <= #{end}]]>
+			</if>
+		</where>
+	</select>
+
+	<!-- 구매요청 내용보기 -->
+	<select id="buyContent" resultType="com.sales.erp.buy.vo.BuyVO">
+		SELECT B.BUYNUM AS BUYNUM,
+		B.EMPNO AS EMPNO, B.PROCODE AS PROCODE, B.AMOUNT AS AMOUNT,
+		B.BUYCOMMENT AS BUYCOMMENT,
+		B.REGDATE AS REGDATE, B.BUYSTEP AS BUYSTEP
+		, B.DELETED AS DELETED, P.PRONAME AS
+		PRONAME FROM BUY B, PRODUCT P
+		WHERE B.PROCODE = P.PROCODE AND B.BUYNUM
+		= #{buynum}
+	</select>
+
+	<!-- 구매요청 승인처리(매니저) -->
+	<update id="buyApproveManager" parameterType="java.lang.String">
+		UPDATE BUY SET
+		BUYSTEP = 1 WHERE BUYNUM=#{buynum}
+	</update>
+
+	<!-- 구매요청 승인처리(관리자) -->
+	<update id="buyApproveAdmin" parameterType="java.lang.String">
+		UPDATE BUY SET
+		BUYSTEP = 2, APPDATE=SYSDATE WHERE BUYNUM=#{buynum}
+	</update>
+
+	<!-- 구매요청 취소 -->
+	<update id="buyCancel" parameterType="java.lang.String">
+		UPDATE BUY SET BUYSTEP = 0,
+		APPDATE=SYSDATE, DELETED=1 WHERE BUYNUM=#{buynum}
+	</update>
+	
+	<update id="buyCancelManager" parameterType="java.lang.String">
+		UPDATE BUY SET BUYSTEP = 1,
+		APPDATE=SYSDATE, DELETED=1 WHERE BUYNUM=#{buynum}
+	</update>
+	
+	<update id="buyCancelAdmin" parameterType="java.lang.String">
+		UPDATE BUY SET BUYSTEP = 1,
+		APPDATE=SYSDATE, DELETED=1 WHERE BUYNUM=#{buynum}
+	</update>
+	
+	
+
+	<!-- 자재팀 / 관리자 승인목록 불러오기 -->
+	<select id="buyAppListAll" parameterType="com.sales.erp.buy.vo.BuyPagingVO"
+		resultType="com.sales.erp.buy.vo.BuyListVO">
+		SELECT BUYNUM, REGDATE, CNT, EMPNO, PROCODE, BUYSTEP, TEAM, APPDATE
+		FROM(
+		SELECT BUYNUM, REGDATE, CNT, EMPNO, PROCODE, BUYSTEP, TEAM,
+		APPDATE, ROWNUM R FROM (
+		SELECT BUYNUM, MAX(REGDATE) AS REGDATE,
+		COUNT(*) AS CNT, MAX(EMPNO) AS EMPNO,
+		MAX(PROCODE) AS PROCODE,
+		MAX(BUYSTEP) AS BUYSTEP, MAX(TEAM) AS TEAM, MAX(APPDATE) AS APPDATE
+		FROM
+		(SELECT B.BUYNUM AS BUYNUM, B.EMPNO AS EMPNO, B.PROCODE AS
+		PROCODE, B.AMOUNT
+		AS AMOUNT, B.BUYCOMMENT AS BUYCOMMENT,
+		B.REGDATE AS
+		REGDATE, B.APPDATE AS APPDATE, B.BUYSTEP AS BUYSTEP , B.DELETED AS
+		DELETED, S.TEAM AS TEAM FROM BUY B, SMEMBER S WHERE B.EMPNO = S.EMPNO)
+		WHERE BUYSTEP=2 AND DELETED=0 GROUP BY BUYNUM ORDER BY BUYNUM DESC)
+		<where>
+			<if test="team != null and team != ''">
+				TEAM = #{team}
+			</if>
+			<if test="empno != null and empno != ''">
+				AND EMPNO = #{empno}
+			</if>
+			<if test="start_date !=null and start_date != '' ">
+				<![CDATA[ AND APPDATE > #{start_date}	]]>
+			</if>
+			<if test="end_date !=null and end_date != '' ">
+				<![CDATA[ AND APPDATE < #{end_date}	]]>
+			</if>
+		</where>
+		)
+		<where>
+			<if test="start !=null and start != '' ">
+			<![CDATA[R >=#{start}]]>
+			</if>
+			<if test="end !=null and end != '' ">
+			<![CDATA[	AND R <= #{end}]]>
+			</if>
+		</where>
+	</select>
+
+	<select id="getbuyAppListCountAll" parameterType="com.sales.erp.buy.vo.BuyPagingVO"
+		resultType="java.lang.Integer">
+		SELECT COUNT(*) FROM (
+		SELECT BUYNUM, MAX(EMPNO) AS EMPNO, MAX(PROCODE)
+		AS PROCODE, MAX(APPDATE) AS APPDATE, MAX(TEAM) AS
+		TEAM FROM
+		(SELECT
+		B.BUYNUM AS BUYNUM, B.EMPNO AS
+		EMPNO, B.PROCODE AS PROCODE, B.BUYSTEP
+		AS BUYSTEP , B.DELETED AS DELETED, B.APPDATE AS APPDATE, S.TEAM AS
+		TEAM
+		FROM BUY B, SMEMBER S
+		WHERE B.EMPNO = S.EMPNO)
+		<where>
+			BUYSTEP=2 AND DELETED=0
+			<if test="team != null and team != ''">
+				AND TEAM = #{team}
+			</if>
+			<if test="empno != null and empno != ''">
+				AND EMPNO = #{empno}
+			</if>
+			<if test="start_date !=null and start_date != '' ">
+				<![CDATA[ AND APPDATE > #{start_date}	]]>
+			</if>
+			<if test="end_date !=null and end_date != '' ">
+				<![CDATA[ AND APPDATE < #{end_date}	]]>
+			</if>
+			GROUP BY BUYNUM ORDER BY BUYNUM DESC
+		</where>
+		)
+	</select>
+
+	<select id="get_team" resultType="java.lang.String">
+		SELECT TEAM FROM SMEMBER GROUP
+		BY TEAM ORDER BY TEAM
+	</select>
+</mapper>
